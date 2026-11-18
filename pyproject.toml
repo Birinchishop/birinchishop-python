@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "birinchishop"
+version = "0.1.0"
+description = "Official Python client for the Birinchi Shop Partner API (CPA affiliate network, Uzbekistan): offers, tracking links, orders, stats, events, webhooks."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Birinchi Shop", email = "noreply@birinchishop.uz" }]
+keywords = ["birinchishop", "cpa", "affiliate", "affiliate-network", "partner-api", "uzbekistan", "cod", "postback", "webhook", "keitaro", "binom", "sdk"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://birinchishop.uz/api/v1/docs"
+Documentation = "https://birinchishop.uz/api/v1/docs"
+Source = "https://github.com/Birinchishop/birinchishop-python"
+Examples = "https://github.com/Birinchishop/birinchishop-api-examples"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+birinchishop = ["py.typed"]
