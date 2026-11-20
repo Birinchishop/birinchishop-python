@@ -9,9 +9,18 @@ import unittest
 import urllib.parse
 from pathlib import Path
 
+import birinchishop
 from birinchishop import (
+    AuthenticationError,
     Birinchishop,
     BirinchishopError,
+    ConflictError,
+    InvalidRequestError,
+    NetworkError,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+    ServerError,
     HttpResponse,
     SignatureVerificationError,
     __version__,
@@ -193,6 +202,7 @@ class ClientTests(unittest.TestCase):
             ("get_stats", (), {"group_by": "offer"}, "GET", "/stats"),
             ("list_events", (), {"after": 5}, "GET", "/events"),
             ("get_order_sale_chance", (3,), {}, "GET", "/orders/3/sale-chance"),
+            ("set_test_order_status", (2000000001, "delivered"), {}, "POST", "/sandbox/orders/2000000001/status"),
             ("get_insights", (), {}, "GET", "/insights"),
             ("get_ads_status", (), {}, "GET", "/ads/status"),
             ("list_campaigns", (), {"period": "30d"}, "GET", "/ads/campaigns"),
@@ -208,14 +218,16 @@ class ClientTests(unittest.TestCase):
             ("list_webhook_deliveries", (8,), {"limit": 10}, "GET", "/webhooks/8/deliveries"),
             ("get_reference", (), {}, "GET", "/reference"),
         ]
-        c, t = make([ok({}) for _ in cases])
+        t = FakeTransport([ok({}) for _ in cases])
+        c = Birinchishop(TEST_KEY, transport=t)
         for name, args, kwargs, _, _ in cases:
             getattr(c, name)(*args, **kwargs)
         for i, (name, _, _, method, path) in enumerate(cases):
             self.assertEqual(t.calls[i]["method"], method, name)
             self.assertEqual(path_of(t.calls[i]), "/api/v1" + path, name)
-        self.assertEqual(t.calls[16]["body"], {"daily_budget": 50000})
-        self.assertEqual(t.calls[20]["body"], {"is_active": True})
+        self.assertEqual(t.calls[11]["body"], {"status": "delivered"})
+        self.assertEqual(t.calls[17]["body"], {"daily_budget": 50000})
+        self.assertEqual(t.calls[21]["body"], {"is_active": True})
 
     def test_every_operation_has_a_method(self):
         spec = json.loads(SPEC.read_text(encoding="utf-8"))
@@ -300,6 +312,166 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual(fill_tracking_url(tpl, click_id="{clickid}", sub1="camp 1&x"),
                          "https://birinchishop.uz/l/abc123?click_id={clickid}&sub1=camp%201%26x")
         self.assertEqual(fill_tracking_url(tpl), "https://birinchishop.uz/l/abc123")
+
+
+TEST_KEY = "bsk_test_AAAAAAAAAAAA_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+
+def make_test(responses, **kw):
+    t = FakeTransport(responses)
+    return Birinchishop(TEST_KEY, transport=t, sleeper=lambda s: None, **kw), t
+
+
+class TestModeTests(unittest.TestCase):
+    """0.2.0: test mode (sandbox), error subclasses, postback macros."""
+
+    def test_is_test_mode_follows_the_key_prefix(self):
+        self.assertFalse(make([])[0].is_test_mode())
+        self.assertTrue(make_test([])[0].is_test_mode())
+        self.assertEqual(birinchishop.TEST_KEY_PREFIX, "bsk_test_")
+        self.assertEqual(birinchishop.LIVE_KEY_PREFIX, "bsk_live_")
+        self.assertEqual(birinchishop.TEST_ID_BASE, 2000000000)
+
+    def test_set_test_order_status_refuses_live_keys_without_a_request(self):
+        c, t = make([])
+        with self.assertRaises(PermissionDeniedError) as cm:
+            c.set_test_order_status(2000000001, "delivered")
+        self.assertEqual(cm.exception.code, "test_mode_only")
+        self.assertIsInstance(cm.exception, BirinchishopError)
+        self.assertEqual(t.calls, [])
+
+    def test_set_test_order_status_with_a_test_key(self):
+        c, t = make_test([ok({"order": {"id": 2000000001, "status": "delivered", "test": True},
+                              "previous_status": "new", "webhooks": {"matched": 0, "sent": 0}})])
+        r = c.set_test_order_status("2000000001", "delivered")
+        self.assertEqual(r["data"]["order"]["status"], "delivered")
+        self.assertEqual(t.calls[0]["method"], "POST")
+        self.assertEqual(path_of(t.calls[0]), "/api/v1/sandbox/orders/2000000001/status")
+        self.assertEqual(t.calls[0]["body"], {"status": "delivered"})
+        self.assertEqual(t.calls[0]["headers"]["Authorization"], "Bearer " + TEST_KEY)
+
+    def test_set_test_order_status_is_not_retried(self):
+        sleeps = []
+        t = FakeTransport([err(500, "internal_error")])
+        c = Birinchishop(TEST_KEY, transport=t, sleeper=sleeps.append)
+        with self.assertRaises(ServerError):
+            c.set_test_order_status(2000000001, "shipping")
+        self.assertEqual(len(t.calls), 1)
+        self.assertEqual(sleeps, [])
+
+    def test_create_order_with_a_test_key_is_the_same_request(self):
+        resp = ok({"id": 2000000123, "status": "new", "test": True, "live_orders_allowed": False}, status=201,
+                  headers={"Content-Type": "application/json", "X-Birinchishop-Mode": "test"})
+        c, t = make_test([resp])
+        r = c.create_order(1, "+998901234567", idempotency_key="lead-1")
+        self.assertTrue(r["data"]["test"])
+        self.assertFalse(r["data"]["live_orders_allowed"])
+        self.assertGreaterEqual(r["data"]["id"], birinchishop.TEST_ID_BASE)
+        self.assertEqual(t.calls[0]["headers"]["Idempotency-Key"], "lead-1")
+        self.assertEqual(path_of(t.calls[0]), "/api/v1/orders")
+
+    def test_not_available_in_test_mode_is_permission_denied(self):
+        c, _ = make_test([err(403, "not_available_in_test_mode")])
+        with self.assertRaises(PermissionDeniedError) as cm:
+            c.pause_campaign(1)
+        self.assertEqual(cm.exception.code, "not_available_in_test_mode")
+
+    def test_statuses_map_to_error_subclasses(self):
+        cases = [(400, InvalidRequestError), (413, InvalidRequestError), (415, InvalidRequestError),
+                 (422, InvalidRequestError), (401, AuthenticationError), (403, PermissionDeniedError),
+                 (404, NotFoundError), (409, ConflictError), (429, RateLimitError), (500, ServerError),
+                 (503, ServerError), (418, BirinchishopError)]
+        for status, cls in cases:
+            c, _ = make([err(status, "code_%d" % status)], max_retries=0)
+            with self.assertRaises(cls) as cm:
+                c.create_link(1)
+            self.assertIs(type(cm.exception), cls, status)
+            self.assertEqual(cm.exception.status, status)
+            self.assertIsInstance(cm.exception, BirinchishopError)
+        c, _ = make([OSError("down")], max_retries=0)
+        with self.assertRaises(NetworkError):
+            c.get_account()
+        old = os.environ.pop("BSK_KEY", None)
+        try:
+            with self.assertRaises(AuthenticationError):
+                Birinchishop("   ")
+        finally:
+            if old is not None:
+                os.environ["BSK_KEY"] = old
+
+    def test_create_order_validates_before_sending(self):
+        c, t = make([])
+        for kwargs, field_name in (({"link_id": 1, "phone": ""}, "phone"), ({"link_id": None, "phone": "+998901234567"}, "link_id"),
+                                   ({"link_id": 1, "phone": "+998901234567", "idempotency_key": "bad key!"}, "Idempotency-Key"),
+                                   ({"link_id": 1, "phone": "+998901234567", "idempotency_key": "x" * 129}, "Idempotency-Key")):
+            with self.assertRaises(InvalidRequestError) as cm:
+                c.create_order(**kwargs)
+            self.assertEqual(cm.exception.details[0]["field"], field_name)
+        self.assertEqual(t.calls, [])
+
+    def test_path_ids(self):
+        c, t = make([ok({}), ok({})])
+        c.get_order(2147483647)
+        c.get_order(5.0)
+        self.assertEqual(path_of(t.calls[1]), "/api/v1/orders/5")
+        for bad in (0, -1, 1.5, 2147483648, "1e3", " 3", "", None, True, "\u0663"):
+            with self.assertRaises(InvalidRequestError, msg=repr(bad)):
+                c.get_order(bad)
+        self.assertEqual(len(t.calls), 2)
+
+    def test_datetime_date_filters_are_tashkent_days(self):
+        from datetime import datetime, timezone
+        c, t = make([ok([], {"total_pages": 0}), ok([])])
+        c.list_orders(date_from=datetime(2026, 11, 1, 20, 30, tzinfo=timezone.utc), date_to=datetime(2026, 11, 2, 10, 0),
+                      updated_since=datetime(2026, 11, 1, tzinfo=timezone.utc))
+        q = query_of(t.calls[0])
+        self.assertEqual(q["date_from"], "2026-11-02")
+        self.assertEqual(q["date_to"], "2026-11-02")
+        self.assertEqual(q["updated_since"], "2026-11-01T00:00:00+00:00")
+        c.get_stats(date_from=datetime(2026, 11, 3, 23, 0, tzinfo=timezone.utc))
+        self.assertEqual(query_of(t.calls[1])["date_from"], "2026-11-04")
+
+    def test_retry_after_http_date(self):
+        from email.utils import format_datetime
+        from datetime import datetime, timedelta, timezone
+        when = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=30), usegmt=True)
+        sleeps = []
+        t = FakeTransport([err(429, "rate_limited", headers={"Retry-After": when}), ok([])])
+        Birinchishop(KEY, transport=t, sleeper=sleeps.append).list_orders()
+        self.assertEqual(len(sleeps), 1)
+        self.assertTrue(25 <= sleeps[0] <= 31, sleeps)
+
+    def test_paginate(self):
+        c, t = make([ok([{"id": 1}], {"page": 1, "total_pages": 1})])
+        self.assertEqual([o["id"] for o in c.paginate("listLinks", offer_id=4)], [1])
+        self.assertEqual(query_of(t.calls[0])["offer_id"], "4")
+        with self.assertRaises(InvalidRequestError):
+            list(c.paginate("list_events"))
+
+    def test_postback_macros(self):
+        self.assertIn("payout_earned", birinchishop.POSTBACK_MACROS)
+        self.assertIn("test", birinchishop.POSTBACK_MACROS)
+        spec = json.loads(SPEC.read_text(encoding="utf-8"))
+        self.assertEqual(list(birinchishop.POSTBACK_MACROS), spec["x-postback-macros"])
+        self.assertNotIn("new", birinchishop.TEST_ORDER_STATUSES)
+
+    def test_test_webhook_events(self):
+        t = 1_800_000_000
+        body = b'{"id":"evt_test_abc","type":"order.created","test":true,"data":{"order_id":2000000001}}'
+        self.assertTrue(construct_event(body, sign(body, t), SECRET, now=t)["test"])
+        self.assertEqual(birinchishop.TEST_HEADER, "X-Birinchishop-Test")
+        with self.assertRaises(ValueError):
+            construct_event(b"42", sign(b"42", t), SECRET, now=t)
+        with self.assertRaises(ValueError):
+            construct_event(b"not json", sign(b"not json", t), SECRET, now=t)
+
+    def test_version_and_changelog(self):
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(__version__, "0.2.0")
+        self.assertIn('version = "%s"' % __version__, (root / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertIn("## [%s]" % __version__, (root / "CHANGELOG.md").read_text(encoding="utf-8"))
+        for name in birinchishop.__all__:
+            self.assertTrue(hasattr(birinchishop, name), name)
 
 
 if __name__ == "__main__":

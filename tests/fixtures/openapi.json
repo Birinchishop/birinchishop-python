@@ -1,1 +1,3820 @@
-{"openapi":"3.1.0","info":{"title":"Birinchishop Partner API","version":"2026-10-23","summary":"CPA affiliate network API for partners, trackers and AI agents.","description":"Programmatic access for Birinchishop partners (affiliates): browse offers, create tracking links, submit and track orders, read statistics, and receive status updates via webhooks or S2S postbacks.\n\nAuthentication: create an API key in the partner panel (Dashboard -> API) and send it as `Authorization: Bearer bsk_live_...`. Keys are scoped; grant only what you need. Keys must never be used from a browser or mobile app.\n\nAI agents: an MCP server (Model Context Protocol, Streamable HTTP) is available at `POST /api/v1/mcp` with the same key. It also exposes prompts (daily_review, find_offer, check_campaigns, order_problems) and resources.\n\nHuman in the loop: pausing a campaign is immediate; resuming it or changing its budget returns `202` with an action in status `pending_confirmation` — the partner confirms it in the Telegram bot or panel, poll `GET /actions/{action_id}`.\n\nAll responses: `{ \"data\": ..., \"meta\"?: ..., \"request_id\": \"...\" }`. Errors: `{ \"error\": { \"code\", \"message\", \"details\"? }, \"request_id\" }`. Branch on `error.code`, not on the message.\n\nBusiness rules: Customers pay on delivery (cash on delivery). A delivery fee (typically 30,000 UZS) is added to customer_price by the delivery partner. Payout is credited only when an order reaches \"delivered\"; if the status is later reverted, the payout is reversed. One phone number cannot order the same offer twice within 24 hours, and at most 3 different offers per 24 hours. Customer phone numbers are always masked for partners. Submitting orders via API (orders:write) requires at least 3 delivered orders on the account, or admin approval. Fake or test orders are forbidden and lead to account blocking.","contact":{"name":"Birinchishop support","url":"https://t.me/birinchishop_support"}},"servers":[{"url":"https://birinchishop.uz/api/v1"}],"security":[{"ApiKey":[]}],"tags":[{"name":"Account"},{"name":"Offers"},{"name":"Links"},{"name":"Orders"},{"name":"Stats"},{"name":"Events"},{"name":"Webhooks"},{"name":"AI","description":"AI manager recommendations and order sale chance."},{"name":"Ads","description":"Meta (Facebook/Instagram) ad campaigns. Spending-increasing actions require the partner's confirmation."},{"name":"Meta"}],"paths":{"/me":{"get":{"tags":["Account"],"operationId":"getAccount","summary":"Account, balance and key info","security":[{"ApiKey":["account:read"]}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Account"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}}},"/offers":{"get":{"tags":["Offers"],"operationId":"listOffers","summary":"Search active offers","security":[{"ApiKey":["offers:read"]}],"parameters":[{"name":"search","in":"query","required":false,"description":"Product search (Uzbek Latin/Cyrillic or Russian; synonyms and typos tolerated). Without sort — ordered by relevance.","schema":{"type":"string","maxLength":100}},{"name":"sort","in":"query","required":false,"description":"Sort order.","schema":{"type":"string","enum":["recommended","newest","best_selling","highest_payout","highest_stock","highest_lead_bonus"],"default":"recommended"}},{"name":"in_stock_only","in":"query","schema":{"type":"boolean","default":true},"description":"Only offers with stock > 0."},{"name":"min_sale_rate","in":"query","required":false,"description":"Minimum sale_rate_percent (0-100).","schema":{"type":"integer","minimum":0,"maximum":100}},{"name":"min_payout","in":"query","required":false,"description":"Minimum payout, UZS.","schema":{"type":"integer","minimum":0}},{"name":"ids","in":"query","required":false,"description":"Comma-separated offer ids (max 100).","schema":{"type":"string"}},{"name":"lang","in":"query","required":false,"description":"Language of offer name/description: uz (default, original), ru or en (translation; falls back to Uzbek).","schema":{"type":"string","enum":["uz","ru","en"],"default":"uz"}},{"name":"page","in":"query","required":false,"description":"Page number (from 1).","schema":{"type":"integer","minimum":1,"default":1}},{"name":"limit","in":"query","required":false,"description":"Items per page.","schema":{"type":"integer","minimum":1,"maximum":100,"default":20}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/Offer"}},"meta":{"$ref":"#/components/schemas/PageMeta"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}}},"/offers/{offer_id}":{"get":{"tags":["Offers"],"operationId":"getOffer","summary":"Offer details with variants and your links","security":[{"ApiKey":["offers:read"]}],"parameters":[{"name":"offer_id","in":"path","required":true,"description":"Offer id","schema":{"type":"integer","minimum":1}},{"name":"lang","in":"query","required":false,"description":"Language of offer name/description: uz (default, original), ru or en (translation; falls back to Uzbek).","schema":{"type":"string","enum":["uz","ru","en"],"default":"uz"}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/OfferDetail"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/links":{"get":{"tags":["Links"],"operationId":"listLinks","summary":"List your tracking links","security":[{"ApiKey":["links:read"]}],"parameters":[{"name":"offer_id","in":"query","required":false,"description":"Only links for this offer.","schema":{"type":"integer","minimum":1}},{"name":"page","in":"query","required":false,"description":"Page number (from 1).","schema":{"type":"integer","minimum":1,"default":1}},{"name":"limit","in":"query","required":false,"description":"Items per page.","schema":{"type":"integer","minimum":1,"maximum":100,"default":20}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/Link"}},"meta":{"$ref":"#/components/schemas/PageMeta"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}},"post":{"tags":["Links"],"operationId":"createLink","summary":"Create a tracking link","security":[{"ApiKey":["links:write"]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["offer_id"],"additionalProperties":false,"properties":{"offer_id":{"type":"integer","minimum":1},"name":{"type":"string","maxLength":100}}}}}},"responses":{"201":{"description":"Created","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Link"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"409":{"$ref":"#/components/responses/E409"},"429":{"$ref":"#/components/responses/E429"}}}},"/links/{link_id}":{"get":{"tags":["Links"],"operationId":"getLink","summary":"One tracking link","security":[{"ApiKey":["links:read"]}],"parameters":[{"name":"link_id","in":"path","required":true,"description":"Link id","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Link"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/orders":{"get":{"tags":["Orders"],"operationId":"listOrders","summary":"List your orders","security":[{"ApiKey":["orders:read"]}],"parameters":[{"name":"status","in":"query","required":false,"description":"Order status.","schema":{"type":"string","enum":["new","processing","callback","confirmed","packed","shipping","delivered","returned","cancelled"]}},{"name":"conversion_status","in":"query","required":false,"description":"Status group.","schema":{"type":"string","enum":["lead","approved","sale","rejected"]}},{"name":"date_from","in":"query","required":false,"description":"Created on/after (Asia/Tashkent), YYYY-MM-DD.","schema":{"type":"string","format":"date"}},{"name":"date_to","in":"query","required":false,"description":"Created on/before (Asia/Tashkent), YYYY-MM-DD.","schema":{"type":"string","format":"date"}},{"name":"updated_since","in":"query","required":false,"description":"ISO 8601 datetime. Returns orders updated after it, ordered by updated_at ascending (incremental sync).","schema":{"type":"string","format":"date-time"}},{"name":"link_id","in":"query","required":false,"description":"Filter by link.","schema":{"type":"integer","minimum":1}},{"name":"offer_id","in":"query","required":false,"description":"Filter by offer.","schema":{"type":"integer","minimum":1}},{"name":"click_id","in":"query","required":false,"description":"Filter by tracker click id.","schema":{"type":"string"}},{"name":"external_id","in":"query","required":false,"description":"Filter by your external id.","schema":{"type":"string"}},{"name":"page","in":"query","required":false,"description":"Page number (from 1).","schema":{"type":"integer","minimum":1,"default":1}},{"name":"limit","in":"query","required":false,"description":"Items per page.","schema":{"type":"integer","minimum":1,"maximum":100,"default":20}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/Order"}},"meta":{"$ref":"#/components/schemas/PageMeta"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}},"post":{"tags":["Orders"],"operationId":"createOrder","summary":"Submit a real customer order (lead)","security":[{"ApiKey":["orders:write"]}],"description":"Creates a REAL order; a call center will phone the customer. Never send test or fake orders. Send an `Idempotency-Key` header so that retries never create duplicates (a replay returns 200 with header `Idempotent-Replayed: true`).","parameters":[{"name":"Idempotency-Key","in":"header","required":false,"schema":{"type":"string","maxLength":128,"pattern":"^[A-Za-z0-9._:-]+$"}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/OrderCreate"}}}},"responses":{"200":{"description":"Idempotent replay of an existing order","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Order"},"request_id":{"type":"string"}}}}}},"201":{"description":"Created","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Order"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"409":{"$ref":"#/components/responses/E409"},"410":{"$ref":"#/components/responses/E410"},"415":{"$ref":"#/components/responses/E415"},"429":{"$ref":"#/components/responses/E429"},"503":{"$ref":"#/components/responses/E503"}}}},"/orders/{order_id}":{"get":{"tags":["Orders"],"operationId":"getOrder","summary":"One order","security":[{"ApiKey":["orders:read"]}],"parameters":[{"name":"order_id","in":"path","required":true,"description":"Order id","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Order"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/stats":{"get":{"tags":["Stats"],"operationId":"getStats","summary":"Aggregated statistics","security":[{"ApiKey":["stats:read"]}],"description":"Rows exist only for groups with orders. meta.totals also has clicks and unique_clicks for the whole range (including groups without orders); meta.clicks_since is the date (Asia/Tashkent) the click log started — clicks before it are not available.","parameters":[{"name":"group_by","in":"query","required":false,"description":"Grouping.","schema":{"type":"string","enum":["day","offer","link"],"default":"day"}},{"name":"date_from","in":"query","required":false,"description":"YYYY-MM-DD (Asia/Tashkent). Default: 29 days before date_to.","schema":{"type":"string","format":"date"}},{"name":"date_to","in":"query","required":false,"description":"YYYY-MM-DD (Asia/Tashkent). Default: today.","schema":{"type":"string","format":"date"}},{"name":"link_id","in":"query","required":false,"description":"Filter by link.","schema":{"type":"integer","minimum":1}},{"name":"offer_id","in":"query","required":false,"description":"Filter by offer.","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/StatsRow"}},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}}},"/events":{"get":{"tags":["Events"],"operationId":"listEvents","summary":"Order events feed (cursor-based)","security":[{"ApiKey":["events:read"]}],"description":"Poll this instead of (or in addition to) webhooks. Store meta.next_cursor and pass it as `after` next time. Events are kept for 90 days.","parameters":[{"name":"after","in":"query","required":false,"description":"Cursor: return events with id greater than this.","schema":{"type":"integer","minimum":0,"default":0}},{"name":"type","in":"query","required":false,"description":"Event type.","schema":{"type":"string","enum":["order.created","order.status_changed"]}},{"name":"include_order","in":"query","schema":{"type":"boolean","default":false},"description":"Embed the current order."},{"name":"limit","in":"query","required":false,"description":"Max events.","schema":{"type":"integer","minimum":1,"maximum":200,"default":100}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/Event"}},"meta":{"type":"object","properties":{"next_cursor":{"type":"integer"},"has_more":{"type":"boolean"}}},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}}},"/orders/{order_id}/sale-chance":{"get":{"tags":["AI"],"operationId":"getOrderSaleChance","summary":"Probability that the order gets delivered","security":[{"ApiKey":["insights:read"]}],"description":"Estimate 0-100% from the offer sale rate, the order stage, the customer's previous orders across the network, duplicates and rejected leads. The latest value is also in Order.sale_chance_percent.","parameters":[{"name":"order_id","in":"path","required":true,"description":"Order id.","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/SaleChance"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/insights":{"get":{"tags":["AI"],"operationId":"getInsights","summary":"AI manager: today's overview and recommendations","security":[{"ApiKey":["insights:read"]}],"description":"Yesterday's results, last 7 days vs previous week, promoted offers with sale rates and stock, Meta campaigns, suggested offers and prioritized recommendations (type + hint). Also the morning brief text.","responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Insights"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}}},"/ads/status":{"get":{"tags":["Ads"],"operationId":"getAdsStatus","summary":"Meta ad account connection","security":[{"ApiKey":["ads:read"]}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"object"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}}},"/ads/campaigns":{"get":{"tags":["Ads"],"operationId":"listCampaigns","summary":"Meta campaigns with results","security":[{"ApiKey":["ads:read"]}],"parameters":[{"name":"period","in":"query","required":false,"description":"Stats period.","schema":{"type":"string","enum":["7d","30d","90d"],"default":"7d"}},{"name":"include_archived","in":"query","schema":{"type":"boolean","default":false}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/Campaign"}},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"409":{"$ref":"#/components/responses/E409"},"429":{"$ref":"#/components/responses/E429"}}}},"/ads/campaigns/{campaign_id}/pause":{"post":{"tags":["Ads"],"operationId":"pauseCampaign","summary":"Pause a campaign (immediate)","security":[{"ApiKey":["ads:write"]}],"parameters":[{"name":"campaign_id","in":"path","required":true,"description":"Campaign id.","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"object","properties":{"id":{"type":"integer"},"status":{"const":"paused"},"changed":{"type":"boolean"}}},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"409":{"$ref":"#/components/responses/E409"},"429":{"$ref":"#/components/responses/E429"}}}},"/ads/campaigns/{campaign_id}/resume":{"post":{"tags":["Ads"],"operationId":"resumeCampaign","summary":"Request to resume (needs partner confirmation)","security":[{"ApiKey":["ads:write"]}],"parameters":[{"name":"campaign_id","in":"path","required":true,"description":"Campaign id.","schema":{"type":"integer","minimum":1}}],"responses":{"202":{"description":"Confirmation card sent","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Action"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"409":{"$ref":"#/components/responses/E409"},"429":{"$ref":"#/components/responses/E429"}}}},"/ads/campaigns/{campaign_id}/budget":{"post":{"tags":["Ads"],"operationId":"changeCampaignBudget","summary":"Request a daily budget change (needs partner confirmation)","security":[{"ApiKey":["ads:write"]}],"parameters":[{"name":"campaign_id","in":"path","required":true,"description":"Campaign id.","schema":{"type":"integer","minimum":1}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["daily_budget"],"additionalProperties":false,"properties":{"daily_budget":{"type":"number","exclusiveMinimum":0},"unit":{"type":"string","enum":["UZS","ACCOUNT"],"default":"UZS","description":"ACCOUNT = the ad account currency (often USD)."}}}}}},"responses":{"202":{"description":"Confirmation card sent","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Action"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"409":{"$ref":"#/components/responses/E409"},"415":{"$ref":"#/components/responses/E415"},"429":{"$ref":"#/components/responses/E429"}}}},"/actions/{action_id}":{"get":{"tags":["Ads"],"operationId":"getAction","summary":"Status of a confirmation request","security":[{"ApiKey":["ads:read"]}],"parameters":[{"name":"action_id","in":"path","required":true,"description":"Action id.","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Action"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/webhooks":{"get":{"tags":["Webhooks"],"operationId":"listWebhooks","summary":"List webhooks/postbacks","security":[{"ApiKey":["webhooks:manage"]}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"$ref":"#/components/schemas/Webhook"}},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"429":{"$ref":"#/components/responses/E429"}}},"post":{"tags":["Webhooks"],"operationId":"createWebhook","summary":"Add a webhook or S2S postback","security":[{"ApiKey":["webhooks:manage"]}],"description":"kind=json: we POST a signed JSON event. kind=postback: we GET your URL after replacing macros like {click_id}, {status}, {conversion_status}, {payout}. Only public http(s) URLs on ports 80/443/8080/8443. The signing secret is returned ONCE in this response.","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WebhookCreate"}}}},"responses":{"201":{"description":"Created","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"allOf":[{"$ref":"#/components/schemas/Webhook"},{"type":"object","properties":{"secret":{"type":"string","description":"Signing secret, shown once."}}}]},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"409":{"$ref":"#/components/responses/E409"},"429":{"$ref":"#/components/responses/E429"}}}},"/webhooks/{webhook_id}":{"patch":{"tags":["Webhooks"],"operationId":"updateWebhook","summary":"Update / re-enable a webhook","security":[{"ApiKey":["webhooks:manage"]}],"parameters":[{"name":"webhook_id","in":"path","required":true,"description":"Webhook id","schema":{"type":"integer","minimum":1}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"properties":{"url":{"type":"string"},"events":{"type":"array","items":{"type":"string","enum":["order.created","order.status_changed"]}},"description":{"type":"string","maxLength":120},"is_active":{"type":"boolean"}}}}}},"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"$ref":"#/components/schemas/Webhook"},"request_id":{"type":"string"}}}}}},"400":{"$ref":"#/components/responses/E400"},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}},"delete":{"tags":["Webhooks"],"operationId":"deleteWebhook","summary":"Delete a webhook","security":[{"ApiKey":["webhooks:manage"]}],"parameters":[{"name":"webhook_id","in":"path","required":true,"description":"Webhook id","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"object"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/webhooks/{webhook_id}/test":{"post":{"tags":["Webhooks"],"operationId":"testWebhook","summary":"Send a sample event now","security":[{"ApiKey":["webhooks:manage"]}],"parameters":[{"name":"webhook_id","in":"path","required":true,"description":"Webhook id","schema":{"type":"integer","minimum":1}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"object"},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/webhooks/{webhook_id}/deliveries":{"get":{"tags":["Webhooks"],"operationId":"listWebhookDeliveries","summary":"Recent delivery attempts","security":[{"ApiKey":["webhooks:manage"]}],"parameters":[{"name":"webhook_id","in":"path","required":true,"description":"Webhook id","schema":{"type":"integer","minimum":1}},{"name":"limit","in":"query","required":false,"description":"Max rows.","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"array","items":{"type":"object"}},"request_id":{"type":"string"}}}}}},"401":{"$ref":"#/components/responses/E401"},"403":{"$ref":"#/components/responses/E403"},"404":{"$ref":"#/components/responses/E404"},"429":{"$ref":"#/components/responses/E429"}}}},"/mcp":{"post":{"tags":["Meta"],"operationId":"mcp","summary":"MCP endpoint for AI agents (JSON-RPC 2.0)","security":[{"ApiKey":[]}],"description":"Model Context Protocol, Streamable HTTP transport, stateless (JSON responses, no SSE). Tools are filtered by the key scopes.","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object"}}}},"responses":{"200":{"description":"JSON-RPC response"},"202":{"description":"Notification accepted"}}}},"/reference":{"get":{"tags":["Meta"],"operationId":"getReference","summary":"Enums, scopes, statuses and business rules","security":[],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","required":["data","request_id"],"properties":{"data":{"type":"object"},"request_id":{"type":"string"}}}}}}}}}},"webhooks":{"orderEvent":{"post":{"summary":"Order event (kind=json)","description":"Sent for order.created and order.status_changed. Verify X-Birinchishop-Signature. Respond with any 2xx within 10 seconds; otherwise we retry with backoff (1m, 5m, 15m, 1h, 3h, 6h, 12h, 24h). Deliveries may arrive more than once or out of order: deduplicate by event id and use data.order.updated_at.","parameters":[{"name":"X-Birinchishop-Signature","in":"header","required":true,"schema":{"type":"string"}},{"name":"X-Birinchishop-Event","in":"header","required":true,"schema":{"type":"string"}},{"name":"X-Birinchishop-Event-Id","in":"header","required":true,"schema":{"type":"string"}},{"name":"X-Birinchishop-Timestamp","in":"header","required":true,"schema":{"type":"string"}}],"requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WebhookPayload"}}}},"responses":{"200":{"description":"Acknowledged"}}}}},"components":{"securitySchemes":{"ApiKey":{"type":"http","scheme":"bearer","bearerFormat":"bsk_live_<id>_<secret>","description":"Scopes: account:read (Read profile and balance); offers:read (Read the offers catalog); links:read (Read tracking links); links:write (Create tracking links); orders:read (Read orders and their statuses); orders:write (Submit orders (leads)); stats:read (Read statistics); events:read (Read the event feed (order status changes)); webhooks:manage (Manage webhook/postback endpoints); insights:read (Read AI manager recommendations and order sale chance); ads:read (Read Meta ad campaigns and their results); ads:write (Pause ad campaigns; resume/budget changes require the partner's confirmation)"},"OAuth2":{"type":"oauth2","description":"For MCP clients (Claude.ai, ChatGPT...) only: tokens are accepted on /api/v1/mcp, not on REST endpoints. PKCE S256 required; dynamic client registration at /api/v1/oauth/register.","flows":{"authorizationCode":{"authorizationUrl":"https://birinchishop.uz/api/v1/oauth/authorize","tokenUrl":"https://birinchishop.uz/api/v1/oauth/token","refreshUrl":"https://birinchishop.uz/api/v1/oauth/token","scopes":{"account:read":"Read profile and balance","offers:read":"Read the offers catalog","links:read":"Read tracking links","links:write":"Create tracking links","orders:read":"Read orders and their statuses","orders:write":"Submit orders (leads)","stats:read":"Read statistics","events:read":"Read the event feed (order status changes)","insights:read":"Read AI manager recommendations and order sale chance","ads:read":"Read Meta ad campaigns and their results","ads:write":"Pause ad campaigns; resume/budget changes require the partner's confirmation"}}}}},"responses":{"E400":{"description":"Invalid request","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E401":{"description":"Missing/invalid/revoked/expired key","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E403":{"description":"Insufficient scope, IP not allowed, blocked account or feature not allowed","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E404":{"description":"Not found","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E409":{"description":"Conflict (duplicate order, limit reached)","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E410":{"description":"Offer inactive or out of stock","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E415":{"description":"Content-Type must be application/json","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E429":{"description":"Rate limited","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E500":{"description":"Internal error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}},"E503":{"description":"Temporarily unavailable","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}},"schemas":{"Error":{"type":"object","required":["error","request_id"],"properties":{"error":{"type":"object","required":["code","message"],"properties":{"code":{"type":"string","examples":["invalid_request","unauthorized","insufficient_scope","duplicate_order","out_of_stock","rate_limited"]},"message":{"type":"string"},"details":{"type":"array","items":{"type":"object"}}}},"request_id":{"type":"string"}}},"PageMeta":{"type":"object","properties":{"page":{"type":"integer"},"limit":{"type":"integer"},"total":{"type":"integer"},"total_pages":{"type":"integer"}}},"Account":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"status":{"type":"string"},"balance":{"type":"integer","description":"Withdrawable balance, UZS."},"balance_frozen":{"type":"integer","description":"Amount in pending withdrawals, UZS."},"min_withdrawal":{"type":"integer"},"currency":{"const":"UZS"},"created_at":{"type":"string","format":"date-time"},"api_key":{"type":"object","properties":{"name":{"type":"string"},"scopes":{"type":"array","items":{"type":"string"}},"expires_at":{"type":["string","null"],"format":"date-time"}}}}},"Offer":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"customer_price":{"type":"integer","description":"Price the end customer pays (UZS), excluding the delivery fee."},"customer_price_is_minimum":{"type":"boolean","description":"True if variants have different prices and this is the lowest."},"payout":{"type":"integer","description":"Partner earnings per DELIVERED order (UZS)."},"payout_is_minimum":{"type":"boolean"},"lead_bonus":{"type":"integer","description":"Extra per accepted lead (UZS), 0 if none."},"currency":{"const":"UZS"},"in_stock":{"type":"boolean"},"stock":{"type":"integer"},"sale_rate_percent":{"type":["integer","null"],"description":"Delivered / finished orders, last 60 days. null = not enough data."},"sale_rate_tier":{"type":["string","null"],"enum":["good","normal","low",null]},"payment_type":{"type":"string","description":"after_delivery = cash on delivery."},"image_url":{"type":["string","null"]},"video_url":{"type":["string","null"]},"has_variants":{"type":"boolean"},"created_at":{"type":"string","format":"date-time"}}},"OfferDetail":{"allOf":[{"$ref":"#/components/schemas/Offer"},{"type":"object","properties":{"description":{"type":"string"},"images":{"type":"array","items":{"type":"string"}},"variants":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"customer_price":{"type":"integer"},"payout":{"type":"integer"},"in_stock":{"type":"boolean"},"image_url":{"type":["string","null"]},"types":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"in_stock":{"type":"boolean"}}}}}}},"my_links":{"type":"array","items":{"$ref":"#/components/schemas/Link"}}}}]},"Link":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"offer_id":{"type":"integer"},"offer_name":{"type":["string","null"]},"offer_active":{"type":["boolean","null"]},"url":{"type":"string","description":"Public landing page with the order form. Use in ads."},"tracking_url_template":{"type":"string","description":"url with click_id and sub1..sub5 placeholders; values are stored on the order and returned in postbacks."},"clicks":{"type":"integer"},"orders":{"type":"integer"},"delivered":{"type":"integer"},"created_at":{"type":"string","format":"date-time"}}},"Order":{"type":"object","properties":{"id":{"type":"integer"},"status":{"type":"string","enum":["new","processing","callback","confirmed","packed","shipping","delivered","returned","cancelled"]},"conversion_status":{"type":"string","enum":["lead","approved","sale","rejected"]},"created_at":{"type":"string","format":"date-time"},"updated_at":{"type":"string","format":"date-time"},"offer":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":["string","null"]}}},"link":{"type":["object","null"],"properties":{"id":{"type":"integer"},"name":{"type":["string","null"]}}},"variant":{"type":["object","null"],"properties":{"id":{"type":"integer"},"name":{"type":["string","null"]},"type_id":{"type":["integer","null"]},"type_name":{"type":["string","null"]}}},"customer":{"type":"object","properties":{"name":{"type":"string"},"phone_masked":{"type":"string","examples":["+998 ** *** 45 67"]},"region":{"type":["string","null"]}}},"customer_price":{"type":"integer"},"payout":{"type":"integer"},"payout_status":{"type":"string","enum":["pending","earned","under_review","none"]},"currency":{"const":"UZS"},"delivery_date":{"type":["string","null"],"format":"date","description":"Delivery day agreed with the customer (open orders only)."},"operator_note":{"type":["string","null"],"description":"Latest call-center note (phones masked)."},"courier_note":{"type":["string","null"],"description":"Latest courier note (phones masked)."},"source":{"type":"string","enum":["api","panel","link","landing","meta_ads"]},"sale_chance_percent":{"type":["integer","null"],"description":"Latest estimated probability (0-100) that the order gets delivered; null if not computed yet. See /orders/{order_id}/sale-chance."},"tracking":{"type":["object","null"],"properties":{"click_id":{"type":["string","null"]},"sub1":{"type":["string","null"]},"sub2":{"type":["string","null"]},"sub3":{"type":["string","null"]},"sub4":{"type":["string","null"]},"sub5":{"type":["string","null"]},"external_id":{"type":["string","null"]}}}}},"SaleChance":{"type":"object","properties":{"order_id":{"type":"integer"},"percent":{"type":"integer","minimum":0,"maximum":100},"level":{"type":"string","enum":["high","mid","low"]},"final":{"type":"boolean","description":"true when the order is already delivered (100) or rejected (0)."},"factors":{"type":"array","items":{"type":"object","properties":{"factor":{"type":"string","enum":["final","offer","stage","history","no_history","open_orders","dubl","cpa_rejected"]}},"additionalProperties":true}},"computed_at":{"type":"string","format":"date-time"}}},"Insights":{"type":"object","properties":{"day":{"type":"string","format":"date"},"yesterday":{"type":"object"},"week":{"type":"object"},"pending":{"type":"object"},"balance":{"type":"object"},"my_offers":{"type":"array","items":{"type":"object"}},"suggested_offers":{"type":"array","items":{"type":"object"}},"campaigns":{"type":"array","items":{"type":"object"}},"recommendations":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string","enum":["losing_campaign","campaign_problem","stock_out","stock_low","low_sale_offer","try_offers","slowdown","can_withdraw"]},"priority":{"type":"integer"},"hint":{"type":["string","null"]}},"additionalProperties":true}},"morning_brief":{"type":["object","null"],"properties":{"date":{"type":"string","format":"date"},"text":{"type":"string"}}}}},"Campaign":{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"},"status":{"type":"string","enum":["draft","active","paused","archived"]},"offer_name":{"type":["string","null"]},"daily_budget":{"type":["number","null"],"description":"In the ad account currency."},"delivery_status":{"type":["string","null"]},"problem":{"type":["string","null"]},"paused_reason":{"type":["string","null"]},"stats":{"type":["object","null"],"properties":{"spend_uzs":{"type":["integer","null"]},"spend_today_uzs":{"type":["integer","null"]},"orders":{"type":["integer","null"]},"approved":{"type":["integer","null"]},"delivered":{"type":["integer","null"]},"cost_per_order_uzs":{"type":["integer","null"]},"cost_per_delivered_uzs":{"type":["integer","null"]},"net_profit_uzs":{"type":["integer","null"]},"likely_revenue_uzs":{"type":["integer","null"]}}}}},"Action":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["resume_campaign","change_budget","pause_campaign","launch_campaign","create_lead_form","change_creative"]},"status":{"type":"string","enum":["pending_confirmation","pending","running","done","failed","cancelled","expired"]},"campaign_id":{"type":["integer","null"]},"title":{"type":["string","null"]},"details":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"value":{"type":"string"}}}},"result":{"type":["string","null"]},"expires_at":{"type":"string","format":"date-time"},"created_at":{"type":"string","format":"date-time"},"decided_at":{"type":["string","null"],"format":"date-time"},"confirmation":{"type":"object","description":"Only in the 202 response."}}},"OrderCreate":{"type":"object","required":["link_id","phone"],"additionalProperties":false,"properties":{"link_id":{"type":"integer","minimum":1,"description":"Your link; determines the offer."},"phone":{"type":"string","maxLength":20,"description":"Uzbekistan mobile: +998XXXXXXXXX (other common formats are normalized)."},"name":{"type":"string","maxLength":100,"description":"Customer name (default \"Mijoz <last 4 digits>\")."},"region":{"type":"string","maxLength":64},"variant_id":{"type":"integer","minimum":1,"description":"Defaults to the first in-stock variant."},"variant_type_id":{"type":"integer","minimum":1},"external_id":{"type":"string","maxLength":128,"description":"Your own id for this order."},"click_id":{"type":"string","maxLength":255},"sub1":{"type":"string","maxLength":255},"sub2":{"type":"string","maxLength":255},"sub3":{"type":"string","maxLength":255},"sub4":{"type":"string","maxLength":255},"sub5":{"type":"string","maxLength":255}}},"StatsRow":{"type":"object","properties":{"date":{"type":"string","format":"date"},"offer_id":{"type":"integer"},"offer_name":{"type":["string","null"]},"link_id":{"type":["integer","null"]},"link_name":{"type":["string","null"]},"orders":{"type":"integer"},"approved":{"type":"integer"},"delivered":{"type":"integer"},"rejected":{"type":"integer"},"pending":{"type":"integer"},"approval_rate_percent":{"type":"integer"},"delivery_rate_percent":{"type":"integer"},"earned":{"type":"integer","description":"Payout of delivered orders, UZS."},"potential_earnings":{"type":"integer","description":"Payout of still-open orders, UZS."},"clicks":{"type":["integer","null"],"description":"Link page opens in this group, bots and link previews excluded (click log, since meta.clicks_since). null if the click log is unavailable."},"unique_clicks":{"type":["integer","null"],"description":"Clicks not repeated by the same visitor on the same link within 30 minutes (bots excluded). Visitors are identified by a daily-salted hash; raw IPs are not stored."}}},"Event":{"type":"object","properties":{"id":{"type":"integer"},"type":{"type":"string","enum":["order.created","order.status_changed"]},"created_at":{"type":"string","format":"date-time"},"order_id":{"type":"integer"},"status":{"type":"string"},"previous_status":{"type":["string","null"]},"conversion_status":{"type":"string"},"order":{"anyOf":[{"$ref":"#/components/schemas/Order"},{"type":"null"}]}}},"Webhook":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["json","postback"]},"url":{"type":"string"},"events":{"type":"array","items":{"type":"string"}},"description":{"type":["string","null"]},"is_active":{"type":"boolean"},"disabled_reason":{"type":["string","null"]},"consecutive_failures":{"type":"integer"},"last_success_at":{"type":["string","null"],"format":"date-time"},"last_failure_at":{"type":["string","null"],"format":"date-time"},"created_at":{"type":"string","format":"date-time"}}},"WebhookCreate":{"type":"object","required":["url"],"additionalProperties":false,"properties":{"kind":{"type":"string","enum":["json","postback"],"default":"json"},"url":{"type":"string","maxLength":2000,"examples":["https://example.com/hooks/birinchishop","https://tracker.example.com/postback?clickid={click_id}&status={conversion_status}&payout={payout}"]},"events":{"type":"array","items":{"type":"string","enum":["order.created","order.status_changed"]},"default":["order.created","order.status_changed"]},"description":{"type":"string","maxLength":120}}},"WebhookPayload":{"type":"object","properties":{"id":{"type":"string","examples":["evt_123"]},"type":{"type":"string"},"api_version":{"type":"string"},"created_at":{"type":"string","format":"date-time"},"data":{"allOf":[{"$ref":"#/components/schemas/Event"}]}}}}},"x-postback-macros":["click_id","sub1","sub2","sub3","sub4","sub5","order_id","external_id","status","conversion_status","payout","customer_price","currency","offer_id","link_id","event","event_id","timestamp"]}
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Birinchishop Partner API",
+  "version": "2026-10-23",
+  "summary": "CPA affiliate network API for partners, trackers and AI agents.",
+  "description": "Programmatic access for Birinchishop partners (affiliates): browse offers, create tracking links, submit and track orders, read statistics, and receive status updates via webhooks or S2S postbacks.\n\nAuthentication: create an API key in the partner panel (Dashboard -> API) and send it as `Authorization: Bearer bsk_live_...`. Keys are scoped; grant only what you need. Keys must never be used from a browser or mobile app.\n\nTest mode (sandbox): a test key `bsk_test_...` reads real data, while `POST /orders` and `POST /links` run every live validation but create nothing (no order, no call-center call, no payout) and return `\"test\": true` with a fake id >= 2000000000. Your webhooks receive signed test events (`\"test\": true`, header `X-Birinchishop-Test: true`); drive status changes with `POST /sandbox/orders/{order_id}/status`. Test objects are kept in memory for 24 hours and are not listed in /orders, /stats or /events.\n\nAI agents: an MCP server (Model Context Protocol, Streamable HTTP) is available at `POST /api/v1/mcp` with the same key. It also exposes prompts (daily_review, find_offer, check_campaigns, order_problems) and resources.\n\nHuman in the loop: pausing a campaign is immediate; resuming it or changing its budget returns `202` with an action in status `pending_confirmation` — the partner confirms it in the Telegram bot or panel, poll `GET /actions/{action_id}`.\n\nAll responses: `{ \"data\": ..., \"meta\"?: ..., \"request_id\": \"...\" }`. Errors: `{ \"error\": { \"code\", \"message\", \"details\"? }, \"request_id\" }`. Branch on `error.code`, not on the message.\n\nBusiness rules: Customers pay on delivery (cash on delivery). A delivery fee (typically 30,000 UZS) is added to customer_price by the delivery partner. Payout is credited only when an order reaches \"delivered\"; if the status is later reverted, the payout is reversed. One phone number cannot order the same offer twice within 24 hours, and at most 3 different offers per 24 hours. Customer phone numbers are always masked for partners. Submitting orders via API (orders:write) requires at least 3 delivered orders on the account, or admin approval. Fake or test orders are forbidden and lead to account blocking. To test an integration use a TEST key (bsk_test_...) — see test_mode.",
+  "contact": {
+   "name": "Birinchishop support",
+   "url": "https://t.me/birinchishop_support"
+  }
+ },
+ "servers": [
+  {
+   "url": "https://birinchishop.uz/api/v1"
+  }
+ ],
+ "security": [
+  {
+   "ApiKey": []
+  }
+ ],
+ "tags": [
+  {
+   "name": "Account"
+  },
+  {
+   "name": "Offers"
+  },
+  {
+   "name": "Links"
+  },
+  {
+   "name": "Orders"
+  },
+  {
+   "name": "Stats"
+  },
+  {
+   "name": "Events"
+  },
+  {
+   "name": "Webhooks"
+  },
+  {
+   "name": "AI",
+   "description": "AI manager recommendations and order sale chance."
+  },
+  {
+   "name": "Ads",
+   "description": "Meta (Facebook/Instagram) ad campaigns. Spending-increasing actions require the partner's confirmation."
+  },
+  {
+   "name": "Sandbox",
+   "description": "Test mode helpers. Work only with a test key (bsk_test_...)."
+  },
+  {
+   "name": "Meta"
+  }
+ ],
+ "paths": {
+  "/me": {
+   "get": {
+    "tags": [
+     "Account"
+    ],
+    "operationId": "getAccount",
+    "summary": "Account, balance and key info",
+    "security": [
+     {
+      "ApiKey": [
+       "account:read"
+      ]
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Account"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/offers": {
+   "get": {
+    "tags": [
+     "Offers"
+    ],
+    "operationId": "listOffers",
+    "summary": "Search active offers",
+    "security": [
+     {
+      "ApiKey": [
+       "offers:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "search",
+      "in": "query",
+      "required": false,
+      "description": "Product search (Uzbek Latin/Cyrillic or Russian; synonyms and typos tolerated). Without sort — ordered by relevance.",
+      "schema": {
+       "type": "string",
+       "maxLength": 100
+      }
+     },
+     {
+      "name": "sort",
+      "in": "query",
+      "required": false,
+      "description": "Sort order.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "recommended",
+        "newest",
+        "best_selling",
+        "highest_payout",
+        "highest_stock",
+        "highest_lead_bonus"
+       ],
+       "default": "recommended"
+      }
+     },
+     {
+      "name": "in_stock_only",
+      "in": "query",
+      "schema": {
+       "type": "boolean",
+       "default": true
+      },
+      "description": "Only offers with stock > 0."
+     },
+     {
+      "name": "min_sale_rate",
+      "in": "query",
+      "required": false,
+      "description": "Minimum sale_rate_percent (0-100).",
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 100
+      }
+     },
+     {
+      "name": "min_payout",
+      "in": "query",
+      "required": false,
+      "description": "Minimum payout, UZS.",
+      "schema": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     {
+      "name": "ids",
+      "in": "query",
+      "required": false,
+      "description": "Comma-separated offer ids (max 100).",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "description": "Language of offer name/description: uz (default, original), ru or en (translation; falls back to Uzbek).",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "uz",
+        "ru",
+        "en"
+       ],
+       "default": "uz"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "description": "Page number (from 1).",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "default": 1
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "Items per page.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 100,
+       "default": 20
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Offer"
+           }
+          },
+          "meta": {
+           "$ref": "#/components/schemas/PageMeta"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/offers/{offer_id}": {
+   "get": {
+    "tags": [
+     "Offers"
+    ],
+    "operationId": "getOffer",
+    "summary": "Offer details with variants and your links",
+    "security": [
+     {
+      "ApiKey": [
+       "offers:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "offer_id",
+      "in": "path",
+      "required": true,
+      "description": "Offer id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "name": "lang",
+      "in": "query",
+      "required": false,
+      "description": "Language of offer name/description: uz (default, original), ru or en (translation; falls back to Uzbek).",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "uz",
+        "ru",
+        "en"
+       ],
+       "default": "uz"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/OfferDetail"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/links": {
+   "get": {
+    "tags": [
+     "Links"
+    ],
+    "operationId": "listLinks",
+    "summary": "List your tracking links",
+    "security": [
+     {
+      "ApiKey": [
+       "links:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "offer_id",
+      "in": "query",
+      "required": false,
+      "description": "Only links for this offer.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "description": "Page number (from 1).",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "default": 1
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "Items per page.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 100,
+       "default": 20
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Link"
+           }
+          },
+          "meta": {
+           "$ref": "#/components/schemas/PageMeta"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "Links"
+    ],
+    "operationId": "createLink",
+    "summary": "Create a tracking link",
+    "security": [
+     {
+      "ApiKey": [
+       "links:write"
+      ]
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "required": [
+         "offer_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "offer_id": {
+          "type": "integer",
+          "minimum": 1
+         },
+         "name": {
+          "type": "string",
+          "maxLength": 100
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Created",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Link"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/links/{link_id}": {
+   "get": {
+    "tags": [
+     "Links"
+    ],
+    "operationId": "getLink",
+    "summary": "One tracking link",
+    "security": [
+     {
+      "ApiKey": [
+       "links:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "link_id",
+      "in": "path",
+      "required": true,
+      "description": "Link id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Link"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/orders": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "listOrders",
+    "summary": "List your orders",
+    "security": [
+     {
+      "ApiKey": [
+       "orders:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "description": "Order status.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "new",
+        "processing",
+        "callback",
+        "confirmed",
+        "packed",
+        "shipping",
+        "delivered",
+        "returned",
+        "cancelled"
+       ]
+      }
+     },
+     {
+      "name": "conversion_status",
+      "in": "query",
+      "required": false,
+      "description": "Status group.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "lead",
+        "approved",
+        "sale",
+        "rejected"
+       ]
+      }
+     },
+     {
+      "name": "date_from",
+      "in": "query",
+      "required": false,
+      "description": "Created on/after (Asia/Tashkent), YYYY-MM-DD.",
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "date_to",
+      "in": "query",
+      "required": false,
+      "description": "Created on/before (Asia/Tashkent), YYYY-MM-DD.",
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "updated_since",
+      "in": "query",
+      "required": false,
+      "description": "ISO 8601 datetime. Returns orders updated after it, ordered by updated_at ascending (incremental sync).",
+      "schema": {
+       "type": "string",
+       "format": "date-time"
+      }
+     },
+     {
+      "name": "link_id",
+      "in": "query",
+      "required": false,
+      "description": "Filter by link.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "name": "offer_id",
+      "in": "query",
+      "required": false,
+      "description": "Filter by offer.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "name": "click_id",
+      "in": "query",
+      "required": false,
+      "description": "Filter by tracker click id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "external_id",
+      "in": "query",
+      "required": false,
+      "description": "Filter by your external id.",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "description": "Page number (from 1).",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "default": 1
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "Items per page.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 100,
+       "default": 20
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Order"
+           }
+          },
+          "meta": {
+           "$ref": "#/components/schemas/PageMeta"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "createOrder",
+    "summary": "Submit a real customer order (lead)",
+    "security": [
+     {
+      "ApiKey": [
+       "orders:write"
+      ]
+     }
+    ],
+    "description": "Creates a REAL order; a call center will phone the customer. Never send test or fake orders with a live key — use a test key (bsk_test_...) instead: then all validations run but nothing is created and the response has `\"test\": true` and `live_orders_allowed`. Send an `Idempotency-Key` header so that retries never create duplicates (a replay returns 200 with header `Idempotent-Replayed: true`).",
+    "parameters": [
+     {
+      "name": "Idempotency-Key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 128,
+       "pattern": "^[A-Za-z0-9._:-]+$"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OrderCreate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Idempotent replay of an existing order",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Order"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "201": {
+      "description": "Created",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Order"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "410": {
+      "$ref": "#/components/responses/E410"
+     },
+     "415": {
+      "$ref": "#/components/responses/E415"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     },
+     "503": {
+      "$ref": "#/components/responses/E503"
+     }
+    }
+   }
+  },
+  "/sandbox/orders/{order_id}/status": {
+   "post": {
+    "tags": [
+     "Sandbox"
+    ],
+    "operationId": "setTestOrderStatus",
+    "summary": "Test mode: change a test order status and fire order.status_changed",
+    "security": [
+     {
+      "ApiKey": [
+       "orders:write"
+      ]
+     }
+    ],
+    "description": "Only with a test key (otherwise 403 test_mode_only). Changes the in-memory test order (created with POST /orders in test mode) and sends a signed test `order.status_changed` event to your active webhooks/postbacks; the delivery results are returned. Nothing is stored in the database.",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "description": "Test order id (>= 2000000000).",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "required": [
+         "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "status": {
+          "type": "string",
+          "enum": [
+           "processing",
+           "callback",
+           "confirmed",
+           "packed",
+           "shipping",
+           "delivered",
+           "returned",
+           "cancelled"
+          ],
+          "examples": [
+           "delivered"
+          ]
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "order": {
+             "$ref": "#/components/schemas/Order"
+            },
+            "previous_status": {
+             "type": "string"
+            },
+            "webhooks": {
+             "type": "object",
+             "properties": {
+              "matched": {
+               "type": "integer"
+              },
+              "sent": {
+               "type": "integer"
+              },
+              "skipped_rate_limit": {
+               "type": "integer"
+              },
+              "results": {
+               "type": "array",
+               "items": {
+                "type": "object",
+                "properties": {
+                 "webhook_id": {
+                  "type": "integer"
+                 },
+                 "ok": {
+                  "type": "boolean"
+                 },
+                 "response_code": {
+                  "type": [
+                   "integer",
+                   "null"
+                  ]
+                 },
+                 "response_snippet": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "error": {
+                  "type": [
+                   "string",
+                   "null"
+                  ]
+                 },
+                 "duration_ms": {
+                  "type": [
+                   "integer",
+                   "null"
+                  ]
+                 }
+                }
+               }
+              }
+             }
+            }
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "415": {
+      "$ref": "#/components/responses/E415"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/orders/{order_id}": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "operationId": "getOrder",
+    "summary": "One order",
+    "security": [
+     {
+      "ApiKey": [
+       "orders:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "description": "Order id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Order"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/stats": {
+   "get": {
+    "tags": [
+     "Stats"
+    ],
+    "operationId": "getStats",
+    "summary": "Aggregated statistics",
+    "security": [
+     {
+      "ApiKey": [
+       "stats:read"
+      ]
+     }
+    ],
+    "description": "Rows exist only for groups with orders. meta.totals also has clicks and unique_clicks for the whole range (including groups without orders); meta.clicks_since is the date (Asia/Tashkent) the click log started — clicks before it are not available.",
+    "parameters": [
+     {
+      "name": "group_by",
+      "in": "query",
+      "required": false,
+      "description": "Grouping.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "day",
+        "offer",
+        "link"
+       ],
+       "default": "day"
+      }
+     },
+     {
+      "name": "date_from",
+      "in": "query",
+      "required": false,
+      "description": "YYYY-MM-DD (Asia/Tashkent). Default: 29 days before date_to.",
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "date_to",
+      "in": "query",
+      "required": false,
+      "description": "YYYY-MM-DD (Asia/Tashkent). Default: today.",
+      "schema": {
+       "type": "string",
+       "format": "date"
+      }
+     },
+     {
+      "name": "link_id",
+      "in": "query",
+      "required": false,
+      "description": "Filter by link.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "name": "offer_id",
+      "in": "query",
+      "required": false,
+      "description": "Filter by offer.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/StatsRow"
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/events": {
+   "get": {
+    "tags": [
+     "Events"
+    ],
+    "operationId": "listEvents",
+    "summary": "Order events feed (cursor-based)",
+    "security": [
+     {
+      "ApiKey": [
+       "events:read"
+      ]
+     }
+    ],
+    "description": "Poll this instead of (or in addition to) webhooks. Store meta.next_cursor and pass it as `after` next time. Events are kept for 90 days.",
+    "parameters": [
+     {
+      "name": "after",
+      "in": "query",
+      "required": false,
+      "description": "Cursor: return events with id greater than this.",
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0
+      }
+     },
+     {
+      "name": "type",
+      "in": "query",
+      "required": false,
+      "description": "Event type.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "order.created",
+        "order.status_changed"
+       ]
+      }
+     },
+     {
+      "name": "include_order",
+      "in": "query",
+      "schema": {
+       "type": "boolean",
+       "default": false
+      },
+      "description": "Embed the current order."
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "Max events.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 200,
+       "default": 100
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Event"
+           }
+          },
+          "meta": {
+           "type": "object",
+           "properties": {
+            "next_cursor": {
+             "type": "integer"
+            },
+            "has_more": {
+             "type": "boolean"
+            }
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/orders/{order_id}/sale-chance": {
+   "get": {
+    "tags": [
+     "AI"
+    ],
+    "operationId": "getOrderSaleChance",
+    "summary": "Probability that the order gets delivered",
+    "security": [
+     {
+      "ApiKey": [
+       "insights:read"
+      ]
+     }
+    ],
+    "description": "Estimate 0-100% from the offer sale rate, the order stage, the customer's previous orders across the network, duplicates and rejected leads. The latest value is also in Order.sale_chance_percent.",
+    "parameters": [
+     {
+      "name": "order_id",
+      "in": "path",
+      "required": true,
+      "description": "Order id.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/SaleChance"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/insights": {
+   "get": {
+    "tags": [
+     "AI"
+    ],
+    "operationId": "getInsights",
+    "summary": "AI manager: today's overview and recommendations",
+    "security": [
+     {
+      "ApiKey": [
+       "insights:read"
+      ]
+     }
+    ],
+    "description": "Yesterday's results, last 7 days vs previous week, promoted offers with sale rates and stock, Meta campaigns, suggested offers and prioritized recommendations (type + hint). Also the morning brief text.",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Insights"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/ads/status": {
+   "get": {
+    "tags": [
+     "Ads"
+    ],
+    "operationId": "getAdsStatus",
+    "summary": "Meta ad account connection",
+    "security": [
+     {
+      "ApiKey": [
+       "ads:read"
+      ]
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "object"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/ads/campaigns": {
+   "get": {
+    "tags": [
+     "Ads"
+    ],
+    "operationId": "listCampaigns",
+    "summary": "Meta campaigns with results",
+    "security": [
+     {
+      "ApiKey": [
+       "ads:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "period",
+      "in": "query",
+      "required": false,
+      "description": "Stats period.",
+      "schema": {
+       "type": "string",
+       "enum": [
+        "7d",
+        "30d",
+        "90d"
+       ],
+       "default": "7d"
+      }
+     },
+     {
+      "name": "include_archived",
+      "in": "query",
+      "schema": {
+       "type": "boolean",
+       "default": false
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Campaign"
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/ads/campaigns/{campaign_id}/pause": {
+   "post": {
+    "tags": [
+     "Ads"
+    ],
+    "operationId": "pauseCampaign",
+    "summary": "Pause a campaign (immediate)",
+    "security": [
+     {
+      "ApiKey": [
+       "ads:write"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "campaign_id",
+      "in": "path",
+      "required": true,
+      "description": "Campaign id.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "object",
+           "properties": {
+            "id": {
+             "type": "integer"
+            },
+            "status": {
+             "const": "paused"
+            },
+            "changed": {
+             "type": "boolean"
+            }
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/ads/campaigns/{campaign_id}/resume": {
+   "post": {
+    "tags": [
+     "Ads"
+    ],
+    "operationId": "resumeCampaign",
+    "summary": "Request to resume (needs partner confirmation)",
+    "security": [
+     {
+      "ApiKey": [
+       "ads:write"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "campaign_id",
+      "in": "path",
+      "required": true,
+      "description": "Campaign id.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "description": "Confirmation card sent",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Action"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/ads/campaigns/{campaign_id}/budget": {
+   "post": {
+    "tags": [
+     "Ads"
+    ],
+    "operationId": "changeCampaignBudget",
+    "summary": "Request a daily budget change (needs partner confirmation)",
+    "security": [
+     {
+      "ApiKey": [
+       "ads:write"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "campaign_id",
+      "in": "path",
+      "required": true,
+      "description": "Campaign id.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "required": [
+         "daily_budget"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "daily_budget": {
+          "type": "number",
+          "exclusiveMinimum": 0
+         },
+         "unit": {
+          "type": "string",
+          "enum": [
+           "UZS",
+           "ACCOUNT"
+          ],
+          "default": "UZS",
+          "description": "ACCOUNT = the ad account currency (often USD)."
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "202": {
+      "description": "Confirmation card sent",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Action"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "415": {
+      "$ref": "#/components/responses/E415"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/actions/{action_id}": {
+   "get": {
+    "tags": [
+     "Ads"
+    ],
+    "operationId": "getAction",
+    "summary": "Status of a confirmation request",
+    "security": [
+     {
+      "ApiKey": [
+       "ads:read"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "action_id",
+      "in": "path",
+      "required": true,
+      "description": "Action id.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Action"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/webhooks": {
+   "get": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "listWebhooks",
+    "summary": "List webhooks/postbacks",
+    "security": [
+     {
+      "ApiKey": [
+       "webhooks:manage"
+      ]
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "$ref": "#/components/schemas/Webhook"
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "createWebhook",
+    "summary": "Add a webhook or S2S postback",
+    "security": [
+     {
+      "ApiKey": [
+       "webhooks:manage"
+      ]
+     }
+    ],
+    "description": "kind=json: we POST a signed JSON event. kind=postback: we GET your URL after replacing macros like {click_id}, {status}, {conversion_status}, {payout_earned} (payout on sale, else 0). Only public http(s) URLs on ports 80/443/8080/8443. The signing secret is returned ONCE in this response.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WebhookCreate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Created",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "allOf": [
+            {
+             "$ref": "#/components/schemas/Webhook"
+            },
+            {
+             "type": "object",
+             "properties": {
+              "secret": {
+               "type": "string",
+               "description": "Signing secret, shown once."
+              }
+             }
+            }
+           ]
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "409": {
+      "$ref": "#/components/responses/E409"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/webhooks/{webhook_id}": {
+   "patch": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "updateWebhook",
+    "summary": "Update / re-enable a webhook",
+    "security": [
+     {
+      "ApiKey": [
+       "webhooks:manage"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "webhook_id",
+      "in": "path",
+      "required": true,
+      "description": "Webhook id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "url": {
+          "type": "string"
+         },
+         "events": {
+          "type": "array",
+          "items": {
+           "type": "string",
+           "enum": [
+            "order.created",
+            "order.status_changed"
+           ]
+          }
+         },
+         "description": {
+          "type": "string",
+          "maxLength": 120
+         },
+         "is_active": {
+          "type": "boolean"
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "$ref": "#/components/schemas/Webhook"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/E400"
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "deleteWebhook",
+    "summary": "Delete a webhook",
+    "security": [
+     {
+      "ApiKey": [
+       "webhooks:manage"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "webhook_id",
+      "in": "path",
+      "required": true,
+      "description": "Webhook id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "object"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/webhooks/{webhook_id}/test": {
+   "post": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "testWebhook",
+    "summary": "Send a sample event now",
+    "security": [
+     {
+      "ApiKey": [
+       "webhooks:manage"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "webhook_id",
+      "in": "path",
+      "required": true,
+      "description": "Webhook id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "object"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/webhooks/{webhook_id}/deliveries": {
+   "get": {
+    "tags": [
+     "Webhooks"
+    ],
+    "operationId": "listWebhookDeliveries",
+    "summary": "Recent delivery attempts",
+    "security": [
+     {
+      "ApiKey": [
+       "webhooks:manage"
+      ]
+     }
+    ],
+    "parameters": [
+     {
+      "name": "webhook_id",
+      "in": "path",
+      "required": true,
+      "description": "Webhook id",
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "description": "Max rows.",
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 100,
+       "default": 50
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "array",
+           "items": {
+            "type": "object"
+           }
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "$ref": "#/components/responses/E401"
+     },
+     "403": {
+      "$ref": "#/components/responses/E403"
+     },
+     "404": {
+      "$ref": "#/components/responses/E404"
+     },
+     "429": {
+      "$ref": "#/components/responses/E429"
+     }
+    }
+   }
+  },
+  "/mcp": {
+   "post": {
+    "tags": [
+     "Meta"
+    ],
+    "operationId": "mcp",
+    "summary": "MCP endpoint for AI agents (JSON-RPC 2.0)",
+    "security": [
+     {
+      "ApiKey": []
+     }
+    ],
+    "description": "Model Context Protocol, Streamable HTTP transport, stateless (JSON responses, no SSE). Tools are filtered by the key scopes.",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "JSON-RPC response"
+     },
+     "202": {
+      "description": "Notification accepted"
+     }
+    }
+   }
+  },
+  "/reference": {
+   "get": {
+    "tags": [
+     "Meta"
+    ],
+    "operationId": "getReference",
+    "summary": "Enums, scopes, statuses and business rules",
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "data",
+          "request_id"
+         ],
+         "properties": {
+          "data": {
+           "type": "object"
+          },
+          "request_id": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "webhooks": {
+  "orderEvent": {
+   "post": {
+    "summary": "Order event (kind=json)",
+    "description": "Sent for order.created and order.status_changed. Verify X-Birinchishop-Signature. Respond with any 2xx within 10 seconds; otherwise we retry with backoff (1m, 5m, 15m, 1h, 3h, 6h, 12h, 24h). Deliveries may arrive more than once or out of order: deduplicate by event id and use data.order.updated_at.",
+    "parameters": [
+     {
+      "name": "X-Birinchishop-Signature",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "X-Birinchishop-Event",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "X-Birinchishop-Event-Id",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "X-Birinchishop-Timestamp",
+      "in": "header",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WebhookPayload"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Acknowledged"
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "securitySchemes": {
+   "ApiKey": {
+    "type": "http",
+    "scheme": "bearer",
+    "bearerFormat": "bsk_live_<id>_<secret> | bsk_test_<id>_<secret>",
+    "description": "Test keys (bsk_test_) never create orders/links. Scopes: account:read (Read profile and balance); offers:read (Read the offers catalog); links:read (Read tracking links); links:write (Create tracking links); orders:read (Read orders and their statuses); orders:write (Submit orders (leads)); stats:read (Read statistics); events:read (Read the event feed (order status changes)); webhooks:manage (Manage webhook/postback endpoints); insights:read (Read AI manager recommendations and order sale chance); ads:read (Read Meta ad campaigns and their results); ads:write (Pause ad campaigns; resume/budget changes require the partner's confirmation)"
+   },
+   "OAuth2": {
+    "type": "oauth2",
+    "description": "For MCP clients (Claude.ai, ChatGPT...) only: tokens are accepted on /api/v1/mcp, not on REST endpoints. PKCE S256 required; dynamic client registration at /api/v1/oauth/register.",
+    "flows": {
+     "authorizationCode": {
+      "authorizationUrl": "https://birinchishop.uz/api/v1/oauth/authorize",
+      "tokenUrl": "https://birinchishop.uz/api/v1/oauth/token",
+      "refreshUrl": "https://birinchishop.uz/api/v1/oauth/token",
+      "scopes": {
+       "account:read": "Read profile and balance",
+       "offers:read": "Read the offers catalog",
+       "links:read": "Read tracking links",
+       "links:write": "Create tracking links",
+       "orders:read": "Read orders and their statuses",
+       "orders:write": "Submit orders (leads)",
+       "stats:read": "Read statistics",
+       "events:read": "Read the event feed (order status changes)",
+       "insights:read": "Read AI manager recommendations and order sale chance",
+       "ads:read": "Read Meta ad campaigns and their results",
+       "ads:write": "Pause ad campaigns; resume/budget changes require the partner's confirmation"
+      }
+     }
+    }
+   }
+  },
+  "responses": {
+   "E400": {
+    "description": "Invalid request",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E401": {
+    "description": "Missing/invalid/revoked/expired key",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E403": {
+    "description": "Insufficient scope, IP not allowed, blocked account or feature not allowed",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E404": {
+    "description": "Not found",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E409": {
+    "description": "Conflict (duplicate order, limit reached)",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E410": {
+    "description": "Offer inactive or out of stock",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E415": {
+    "description": "Content-Type must be application/json",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E429": {
+    "description": "Rate limited",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E500": {
+    "description": "Internal error",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "E503": {
+    "description": "Temporarily unavailable",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   }
+  },
+  "schemas": {
+   "Error": {
+    "type": "object",
+    "required": [
+     "error",
+     "request_id"
+    ],
+    "properties": {
+     "error": {
+      "type": "object",
+      "required": [
+       "code",
+       "message"
+      ],
+      "properties": {
+       "code": {
+        "type": "string",
+        "examples": [
+         "invalid_request",
+         "unauthorized",
+         "insufficient_scope",
+         "duplicate_order",
+         "out_of_stock",
+         "rate_limited"
+        ]
+       },
+       "message": {
+        "type": "string"
+       },
+       "details": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        }
+       }
+      }
+     },
+     "request_id": {
+      "type": "string"
+     }
+    }
+   },
+   "PageMeta": {
+    "type": "object",
+    "properties": {
+     "page": {
+      "type": "integer"
+     },
+     "limit": {
+      "type": "integer"
+     },
+     "total": {
+      "type": "integer"
+     },
+     "total_pages": {
+      "type": "integer"
+     }
+    }
+   },
+   "Account": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "name": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string"
+     },
+     "balance": {
+      "type": "integer",
+      "description": "Withdrawable balance, UZS."
+     },
+     "balance_frozen": {
+      "type": "integer",
+      "description": "Amount in pending withdrawals, UZS."
+     },
+     "min_withdrawal": {
+      "type": "integer"
+     },
+     "currency": {
+      "const": "UZS"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "api_key": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "mode": {
+        "type": "string",
+        "enum": [
+         "live",
+         "test"
+        ],
+        "description": "test = sandbox key (bsk_test_): writes create nothing."
+       },
+       "scopes": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "expires_at": {
+        "type": [
+         "string",
+         "null"
+        ],
+        "format": "date-time"
+       }
+      }
+     }
+    }
+   },
+   "Offer": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "name": {
+      "type": "string"
+     },
+     "customer_price": {
+      "type": "integer",
+      "description": "Price the end customer pays (UZS), excluding the delivery fee."
+     },
+     "customer_price_is_minimum": {
+      "type": "boolean",
+      "description": "True if variants have different prices and this is the lowest."
+     },
+     "payout": {
+      "type": "integer",
+      "description": "Partner earnings per DELIVERED order (UZS)."
+     },
+     "payout_is_minimum": {
+      "type": "boolean"
+     },
+     "lead_bonus": {
+      "type": "integer",
+      "description": "Extra per accepted lead (UZS), 0 if none."
+     },
+     "currency": {
+      "const": "UZS"
+     },
+     "in_stock": {
+      "type": "boolean"
+     },
+     "stock": {
+      "type": "integer"
+     },
+     "sale_rate_percent": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "Delivered / finished orders, last 60 days. null = not enough data."
+     },
+     "sale_rate_tier": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "good",
+       "normal",
+       "low",
+       null
+      ]
+     },
+     "payment_type": {
+      "type": "string",
+      "description": "after_delivery = cash on delivery."
+     },
+     "image_url": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "video_url": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "has_variants": {
+      "type": "boolean"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "OfferDetail": {
+    "allOf": [
+     {
+      "$ref": "#/components/schemas/Offer"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "description": {
+        "type": "string"
+       },
+       "images": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "variants": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "integer"
+          },
+          "name": {
+           "type": "string"
+          },
+          "customer_price": {
+           "type": "integer"
+          },
+          "payout": {
+           "type": "integer"
+          },
+          "in_stock": {
+           "type": "boolean"
+          },
+          "image_url": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "types": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "integer"
+             },
+             "name": {
+              "type": "string"
+             },
+             "in_stock": {
+              "type": "boolean"
+             }
+            }
+           }
+          }
+         }
+        }
+       },
+       "my_links": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/Link"
+        }
+       }
+      }
+     }
+    ]
+   },
+   "Link": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "name": {
+      "type": "string"
+     },
+     "offer_id": {
+      "type": "integer"
+     },
+     "offer_name": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "offer_active": {
+      "type": [
+       "boolean",
+       "null"
+      ]
+     },
+     "url": {
+      "type": "string",
+      "description": "Public landing page with the order form. Use in ads."
+     },
+     "tracking_url_template": {
+      "type": "string",
+      "description": "url with click_id and sub1..sub5 placeholders; values are stored on the order and returned in postbacks."
+     },
+     "clicks": {
+      "type": "integer"
+     },
+     "orders": {
+      "type": "integer"
+     },
+     "delivered": {
+      "type": "integer"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "test": {
+      "type": "boolean",
+      "description": "Present (true) only in test mode: the link was NOT created and its url does not work."
+     }
+    }
+   },
+   "Order": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "new",
+       "processing",
+       "callback",
+       "confirmed",
+       "packed",
+       "shipping",
+       "delivered",
+       "returned",
+       "cancelled"
+      ]
+     },
+     "conversion_status": {
+      "type": "string",
+      "enum": [
+       "lead",
+       "approved",
+       "sale",
+       "rejected"
+      ]
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "updated_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "offer": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "integer"
+       },
+       "name": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     },
+     "link": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "id": {
+        "type": "integer"
+       },
+       "name": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     },
+     "variant": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "id": {
+        "type": "integer"
+       },
+       "name": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "type_id": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "type_name": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     },
+     "customer": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "phone_masked": {
+        "type": "string",
+        "examples": [
+         "+998 ** *** 45 67"
+        ]
+       },
+       "region": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     },
+     "customer_price": {
+      "type": "integer"
+     },
+     "payout": {
+      "type": "integer"
+     },
+     "payout_status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "earned",
+       "under_review",
+       "none"
+      ]
+     },
+     "currency": {
+      "const": "UZS"
+     },
+     "delivery_date": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date",
+      "description": "Delivery day agreed with the customer (open orders only)."
+     },
+     "operator_note": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Latest call-center note (phones masked)."
+     },
+     "courier_note": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "Latest courier note (phones masked)."
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "api",
+       "panel",
+       "link",
+       "landing",
+       "meta_ads"
+      ]
+     },
+     "sale_chance_percent": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "Latest estimated probability (0-100) that the order gets delivered; null if not computed yet. See /orders/{order_id}/sale-chance."
+     },
+     "tracking": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "click_id": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "sub1": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "sub2": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "sub3": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "sub4": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "sub5": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "external_id": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      }
+     },
+     "test": {
+      "type": "boolean",
+      "description": "Present (true) only in test mode: the order was NOT created (fake id >= 2000000000)."
+     },
+     "live_orders_allowed": {
+      "type": "boolean",
+      "description": "Test mode only: whether a live key on this account may submit orders (orders:write requirements met)."
+     }
+    }
+   },
+   "SaleChance": {
+    "type": "object",
+    "properties": {
+     "order_id": {
+      "type": "integer"
+     },
+     "percent": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+     },
+     "level": {
+      "type": "string",
+      "enum": [
+       "high",
+       "mid",
+       "low"
+      ]
+     },
+     "final": {
+      "type": "boolean",
+      "description": "true when the order is already delivered (100) or rejected (0)."
+     },
+     "factors": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "factor": {
+         "type": "string",
+         "enum": [
+          "final",
+          "offer",
+          "stage",
+          "history",
+          "no_history",
+          "open_orders",
+          "dubl",
+          "cpa_rejected",
+          "meta_source",
+          "ml"
+         ]
+        }
+       },
+       "additionalProperties": true
+      }
+     },
+     "computed_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "Insights": {
+    "type": "object",
+    "properties": {
+     "day": {
+      "type": "string",
+      "format": "date"
+     },
+     "yesterday": {
+      "type": "object"
+     },
+     "week": {
+      "type": "object"
+     },
+     "pending": {
+      "type": "object"
+     },
+     "balance": {
+      "type": "object"
+     },
+     "my_offers": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "suggested_offers": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "campaigns": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "recommendations": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "type": {
+         "type": "string",
+         "enum": [
+          "losing_campaign",
+          "campaign_problem",
+          "stock_out",
+          "stock_low",
+          "low_sale_offer",
+          "try_offers",
+          "slowdown",
+          "can_withdraw"
+         ]
+        },
+        "priority": {
+         "type": "integer"
+        },
+        "hint": {
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       },
+       "additionalProperties": true
+      }
+     },
+     "morning_brief": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "date": {
+        "type": "string",
+        "format": "date"
+       },
+       "text": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   },
+   "Campaign": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "name": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "active",
+       "paused",
+       "archived"
+      ]
+     },
+     "offer_name": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "daily_budget": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "description": "In the ad account currency."
+     },
+     "delivery_status": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "problem": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "paused_reason": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "stats": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "properties": {
+       "spend_uzs": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "spend_today_uzs": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "orders": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "approved": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "delivered": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "cost_per_order_uzs": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "cost_per_delivered_uzs": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "net_profit_uzs": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       },
+       "likely_revenue_uzs": {
+        "type": [
+         "integer",
+         "null"
+        ]
+       }
+      }
+     }
+    }
+   },
+   "Action": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "resume_campaign",
+       "change_budget",
+       "pause_campaign",
+       "launch_campaign",
+       "create_lead_form",
+       "change_creative"
+      ]
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending_confirmation",
+       "pending",
+       "running",
+       "done",
+       "failed",
+       "cancelled",
+       "expired"
+      ]
+     },
+     "campaign_id": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "title": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "details": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string"
+        },
+        "value": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "result": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "expires_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "decided_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "confirmation": {
+      "type": "object",
+      "description": "Only in the 202 response."
+     }
+    }
+   },
+   "OrderCreate": {
+    "type": "object",
+    "required": [
+     "link_id",
+     "phone"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "link_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Your link; determines the offer."
+     },
+     "phone": {
+      "type": "string",
+      "maxLength": 20,
+      "description": "Uzbekistan mobile: +998XXXXXXXXX (other common formats are normalized)."
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Customer name (default \"Mijoz <last 4 digits>\")."
+     },
+     "region": {
+      "type": "string",
+      "maxLength": 64
+     },
+     "variant_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Defaults to the first in-stock variant."
+     },
+     "variant_type_id": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "external_id": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Your own id for this order."
+     },
+     "click_id": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "sub1": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "sub2": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "sub3": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "sub4": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "sub5": {
+      "type": "string",
+      "maxLength": 255
+     }
+    }
+   },
+   "StatsRow": {
+    "type": "object",
+    "properties": {
+     "date": {
+      "type": "string",
+      "format": "date"
+     },
+     "offer_id": {
+      "type": "integer"
+     },
+     "offer_name": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "link_id": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "link_name": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "orders": {
+      "type": "integer"
+     },
+     "approved": {
+      "type": "integer"
+     },
+     "delivered": {
+      "type": "integer"
+     },
+     "rejected": {
+      "type": "integer"
+     },
+     "pending": {
+      "type": "integer"
+     },
+     "approval_rate_percent": {
+      "type": "integer"
+     },
+     "delivery_rate_percent": {
+      "type": "integer"
+     },
+     "earned": {
+      "type": "integer",
+      "description": "Payout of delivered orders, UZS."
+     },
+     "potential_earnings": {
+      "type": "integer",
+      "description": "Payout of still-open orders, UZS."
+     },
+     "clicks": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "Link page opens in this group, bots and link previews excluded (click log, since meta.clicks_since). null if the click log is unavailable."
+     },
+     "unique_clicks": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "description": "Clicks not repeated by the same visitor on the same link within 30 minutes (bots excluded). Visitors are identified by a daily-salted hash; raw IPs are not stored."
+     }
+    }
+   },
+   "Event": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "order.created",
+       "order.status_changed"
+      ]
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "order_id": {
+      "type": "integer"
+     },
+     "status": {
+      "type": "string"
+     },
+     "previous_status": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "conversion_status": {
+      "type": "string"
+     },
+     "order": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Order"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    }
+   },
+   "Webhook": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "json",
+       "postback"
+      ]
+     },
+     "url": {
+      "type": "string"
+     },
+     "events": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "description": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "disabled_reason": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "consecutive_failures": {
+      "type": "integer"
+     },
+     "last_success_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "last_failure_at": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "WebhookCreate": {
+    "type": "object",
+    "required": [
+     "url"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "json",
+       "postback"
+      ],
+      "default": "json"
+     },
+     "url": {
+      "type": "string",
+      "maxLength": 2000,
+      "examples": [
+       "https://example.com/hooks/birinchishop",
+       "https://tracker.example.com/postback?clickid={click_id}&status={conversion_status}&payout={payout}"
+      ]
+     },
+     "events": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "order.created",
+        "order.status_changed"
+       ]
+      },
+      "default": [
+       "order.created",
+       "order.status_changed"
+      ]
+     },
+     "description": {
+      "type": "string",
+      "maxLength": 120
+     }
+    }
+   },
+   "WebhookPayload": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "examples": [
+       "evt_123"
+      ]
+     },
+     "type": {
+      "type": "string"
+     },
+     "api_version": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "data": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/Event"
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "x-postback-macros": [
+  "click_id",
+  "sub1",
+  "sub2",
+  "sub3",
+  "sub4",
+  "sub5",
+  "order_id",
+  "external_id",
+  "status",
+  "conversion_status",
+  "payout",
+  "payout_earned",
+  "customer_price",
+  "currency",
+  "offer_id",
+  "link_id",
+  "event",
+  "event_id",
+  "timestamp",
+  "test"
+ ]
+}

@@ -3,22 +3,40 @@
 from __future__ import annotations
 
 import json
+import numbers
 import os
 import random
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Union
 
 from ._version import __version__
-from .errors import BirinchishopError
+from .errors import (
+    AuthenticationError,
+    BirinchishopError,  # noqa: F401 (re-exported from birinchishop.client in 0.1.x)
+    InvalidRequestError,
+    NetworkError,
+    PermissionDeniedError,
+    error_class_for,
+)
 
 DEFAULT_BASE_URL = "https://birinchishop.uz/api/v1"
 API_VERSION = "2026-10-23"
+#: Key prefixes: live keys create real orders, test keys (sandbox) never create anything.
+LIVE_KEY_PREFIX = "bsk_live_"
+TEST_KEY_PREFIX = "bsk_test_"
+#: Test (sandbox) objects get ids from this value up.
+TEST_ID_BASE = 2000000000
+_MAX_ID = 2147483647
+_IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_TASHKENT = timezone(timedelta(hours=5))
 
 JSON = Dict[str, Any]
 
@@ -66,13 +84,21 @@ def _q(value: Any) -> Optional[str]:
     return str(value)
 
 
+def _day(value: Any) -> Any:
+    """date_from / date_to: a datetime becomes its Asia/Tashkent date (naive datetimes are taken as they are)."""
+    if isinstance(value, datetime):
+        return (value.astimezone(_TASHKENT) if value.tzinfo else value).date()
+    return value
+
+
 def _id(value: Any, name: str) -> int:
-    try:
-        n = int(value)
-    except (TypeError, ValueError):
-        n = 0
-    if n < 1 or (isinstance(value, str) and not value.isdigit()) or isinstance(value, bool):
-        raise BirinchishopError(f"{name} must be a positive integer", code="invalid_request")
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    ok = (isinstance(value, numbers.Integral) and not isinstance(value, bool)) or (
+        isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 10)
+    n = int(value) if ok else 0
+    if n < 1 or n > _MAX_ID:
+        raise InvalidRequestError(f"{name} must be a positive integer", code="invalid_request")
     return n
 
 
@@ -87,7 +113,16 @@ def _retry_after(resp: HttpResponse) -> Optional[float]:
     try:
         return max(0.0, float(raw))
     except ValueError:
+        pass
+    try:  # HTTP-date
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError, IndexError):
         return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
 
 
 class Birinchishop:
@@ -106,16 +141,24 @@ class Birinchishop:
         max_retries: int = 2,
         transport: Optional[Transport] = None,
         user_agent: Optional[str] = None,
+        sleeper: Optional[Callable[[float], None]] = None,
     ) -> None:
-        self.api_key = api_key or os.environ.get("BSK_KEY")
+        """``api_key``: ``bsk_live_...`` or ``bsk_test_...`` (default: the ``BSK_KEY`` environment variable).
+        ``sleeper`` waits N seconds between retries (default ``time.sleep``); inject it in tests."""
+        self.api_key = (api_key or os.environ.get("BSK_KEY") or "").strip()
         if not self.api_key:
-            raise BirinchishopError("API key is required: pass api_key or set BSK_KEY.", code="missing_api_key")
+            raise AuthenticationError("API key is required: pass api_key or set BSK_KEY.", code="missing_api_key")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_retries = max_retries
         self._transport: Transport = transport or urllib_transport
         self.user_agent = f"birinchishop-python/{__version__}" + (f" {user_agent}" if user_agent else "")
-        self._sleep: Callable[[float], None] = time.sleep
+        self._sleep: Callable[[float], None] = sleeper or time.sleep
+
+    def is_test_mode(self) -> bool:
+        """True for a test (sandbox) key ``bsk_test_...``: reads return real data, but POST /orders and POST /links
+        run every live validation and create NOTHING (response has ``"test": True`` and a fake id >= 2000000000)."""
+        return self.api_key.startswith(TEST_KEY_PREFIX)
 
     # ── low level ──────────────────────────────────────────────────────
     def request(
@@ -156,7 +199,7 @@ class Birinchishop:
                     attempt += 1
                     continue
                 is_timeout = isinstance(e, TimeoutError) or "timed out" in str(e)
-                raise BirinchishopError(
+                raise NetworkError(
                     f"Request timed out after {self.timeout} s" if is_timeout else f"Network error: {e}",
                     code="timeout" if is_timeout else "network_error",
                 ) from e
@@ -174,7 +217,7 @@ class Birinchishop:
             err = payload.get("error") if isinstance(payload, dict) else None
             err = err if isinstance(err, dict) else {}
             ra = _retry_after(resp)
-            exc = BirinchishopError(
+            exc = error_class_for(resp.status)(
                 err.get("message") or f"HTTP {resp.status}",
                 status=resp.status,
                 code=err.get("code") or ("invalid_response" if resp.status < 300 else f"http_{resp.status}"),
@@ -235,7 +278,8 @@ class Birinchishop:
         return self.request("GET", f"/links/{_id(link_id, 'link_id')}")
 
     def create_link(self, offer_id: int, *, name: Optional[str] = None) -> JSON:
-        """POST /links — scope links:write. Check ``get_offer(...)['data']['my_links']`` first to avoid duplicates."""
+        """POST /links — scope links:write. Check ``get_offer(...)['data']['my_links']`` first to avoid duplicates.
+        With a test key the link is validated but NOT created (``"test": True``)."""
         return self.request("POST", "/links", body=_drop_none({"offer_id": offer_id, "name": name}))
 
     # ── orders ─────────────────────────────────────────────────────────
@@ -256,12 +300,12 @@ class Birinchishop:
     ) -> JSON:
         """GET /orders — scope orders:read. Dates are Asia/Tashkent. Paginated."""
         return self.request("GET", "/orders", query=dict(
-            status=status, conversion_status=conversion_status, date_from=date_from, date_to=date_to,
+            status=status, conversion_status=conversion_status, date_from=_day(date_from), date_to=_day(date_to),
             updated_since=updated_since, link_id=link_id, offer_id=offer_id, click_id=click_id,
             external_id=external_id, page=page, limit=limit))
 
     def get_order(self, order_id: int) -> JSON:
-        """GET /orders/{order_id} — scope orders:read."""
+        """GET /orders/{order_id} — scope orders:read. Test orders (id >= 2000000000) are returned for 24 hours."""
         return self.request("GET", f"/orders/{_id(order_id, 'order_id')}")
 
     def create_order(
@@ -284,9 +328,10 @@ class Birinchishop:
     ) -> JSON:
         """POST /orders — scope orders:write.
 
-        WARNING: this creates a REAL order. A call center phones the customer and a courier delivers.
+        WARNING: with a live key this creates a REAL order. A call center phones the customer and a courier delivers.
         Use it only for a real customer who asked to order, with their correct phone number.
-        Never send test, sample or fake orders: the account gets blocked.
+        Never send test, sample or fake orders: the account gets blocked. To test an integration use a
+        test key (``bsk_test_...``): every validation runs but nothing is created.
         Requires at least 3 delivered orders on the account (or admin approval).
 
         An ``Idempotency-Key`` is always sent (a random UUID if you do not pass one), so retries never
@@ -298,12 +343,34 @@ class Birinchishop:
             "variant_id": variant_id, "variant_type_id": variant_type_id, "external_id": external_id,
             "click_id": click_id, "sub1": sub1, "sub2": sub2, "sub3": sub3, "sub4": sub4, "sub5": sub5,
         })
+        for fname, fval in (("link_id", link_id), ("phone", phone)):
+            if fval is None or fval == "":
+                raise InvalidRequestError(f"{fname} is required", code="invalid_request",
+                                          details=[{"field": fname, "message": "is required"}])
         key = idempotency_key or str(uuid.uuid4())
+        if not isinstance(key, str) or not _IDEMPOTENCY_KEY.match(key):
+            raise InvalidRequestError("Idempotency-Key must be 1-128 characters: A-Z a-z 0-9 . _ : -",
+                                      code="invalid_request",
+                                      details=[{"field": "Idempotency-Key", "message": "invalid format"}])
         return self.request("POST", "/orders", body=body, headers={"Idempotency-Key": key}, retry=True)
 
     def get_order_sale_chance(self, order_id: int) -> JSON:
         """GET /orders/{order_id}/sale-chance — scope insights:read."""
         return self.request("GET", f"/orders/{_id(order_id, 'order_id')}/sale-chance")
+
+    # ── sandbox (test keys only) ───────────────────────────────────────
+    def set_test_order_status(self, order_id: int, status: str) -> JSON:
+        """POST /sandbox/orders/{order_id}/status — scope orders:write, TEST KEY ONLY.
+
+        Changes an in-memory test order and sends a signed test ``order.status_changed`` event to your active
+        webhooks/postbacks; returns ``{order, previous_status, webhooks}``. Nothing is stored.
+        status: processing | callback | confirmed | packed | shipping | delivered | returned | cancelled.
+        Raises :class:`PermissionDeniedError` (``test_mode_only``) with a live key, without sending a request.
+        """
+        if not self.is_test_mode():
+            raise PermissionDeniedError("set_test_order_status works only with a test key (bsk_test_...).",
+                                        code="test_mode_only")
+        return self.request("POST", f"/sandbox/orders/{_id(order_id, 'order_id')}/status", body={"status": status})
 
     # ── stats & events ─────────────────────────────────────────────────
     def get_stats(
@@ -317,7 +384,7 @@ class Birinchishop:
     ) -> JSON:
         """GET /stats — scope stats:read. group_by: day | offer | link. Dates are Asia/Tashkent."""
         return self.request("GET", "/stats", query=dict(
-            group_by=group_by, date_from=date_from, date_to=date_to, link_id=link_id, offer_id=offer_id))
+            group_by=group_by, date_from=_day(date_from), date_to=_day(date_to), link_id=link_id, offer_id=offer_id))
 
     def list_events(
         self,
@@ -425,6 +492,14 @@ class Birinchishop:
             if not items or page >= total_pages:
                 return
             page += 1
+
+    def paginate(self, method: str, **kwargs: Any) -> Iterator[JSON]:
+        """Iterate over every item of a page-based list: ``"list_offers"`` | ``"list_links"`` | ``"list_orders"``
+        (camelCase names such as ``"listOffers"`` work too). ``limit`` defaults to 100."""
+        name = {"listOffers": "list_offers", "listLinks": "list_links", "listOrders": "list_orders"}.get(method, method)
+        if name not in ("list_offers", "list_links", "list_orders"):
+            raise InvalidRequestError(f"paginate: unsupported method {method}", code="invalid_request")
+        return self._paginate(getattr(self, name), kwargs)
 
     def iter_offers(self, **kwargs: Any) -> Iterator[JSON]:
         """Iterate over all offers matching the filters of :meth:`list_offers`."""

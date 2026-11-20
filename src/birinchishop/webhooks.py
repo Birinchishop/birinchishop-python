@@ -13,6 +13,8 @@ from typing import Any, Dict, Mapping, Optional, Union
 from .errors import SignatureVerificationError
 
 SIGNATURE_HEADER = "X-Birinchishop-Signature"
+#: Present (value "true") on test events sent for a test key. The event body also has ``"test": true``.
+TEST_HEADER = "X-Birinchishop-Test"
 
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 
@@ -73,15 +75,19 @@ def construct_event(
     tolerance: int = 300,
     now: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Verify the signature and return the parsed event ``{id, type, api_version, created_at, data}``.
+    """Verify the signature and return the parsed event ``{id, type, api_version, created_at, data, test?}``.
 
-    Raises :class:`SignatureVerificationError`. Events may arrive twice or out of order: deduplicate by ``id``.
+    Raises :class:`SignatureVerificationError` if the signature is missing, invalid or too old, and ``ValueError``
+    if the (correctly signed) body is not a JSON object. Events may arrive twice or out of order: deduplicate by ``id``.
+    Test events (sent for a test key) have ``"test": True`` and the header ``X-Birinchishop-Test: true``.
     """
     if not verify_signature(raw_body, header, secret, tolerance=tolerance, now=now):
         raise SignatureVerificationError("Invalid or expired X-Birinchishop-Signature")
     if isinstance(raw_body, (bytes, bytearray)):
         raw_body = bytes(raw_body).decode("utf-8")
-    event: Dict[str, Any] = json.loads(raw_body)
+    event = json.loads(raw_body)
+    if not isinstance(event, dict):
+        raise ValueError("Webhook body is not a JSON object")
     return event
 
 
